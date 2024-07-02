@@ -45,15 +45,30 @@ module Globset
       end
 
       def get!(segment)
-        if segment.include?("*")
-          # FIXME: actually implement
-          escaped = Regexp.escape(segment)
-          regex = escaped.gsub("\\*", ".*")
-          regex = "\\A#{regex}\\z"
+        if segment.include?("*") || segment.include?("?")
+          regex = translate_to_regex(segment)
           @complex_transitions[Regexp.new(regex)] ||= State.new
         else
           @exact_transitions[segment] ||= State.new
         end
+      end
+
+      def translate_to_regex(original)
+        # FIXME: actually implement
+        chars = original.chars
+        output = +""
+        while c = chars.shift
+          if c == "\\"
+            output << Regexp.escape(chars.shift)
+          elsif c == "*"
+            output << ".*"
+          elsif c == "?"
+            output << "."
+          else
+            output << Regexp.escape(c)
+          end
+        end
+        Regexp.new("\\A#{output}\\z")
       end
 
       def states_matching(segment)
@@ -79,6 +94,10 @@ module Globset
 
         if pattern.start_with?("**/")
           doublestar_transition!.add(pattern.delete_prefix("**/"), value)
+        elsif pattern.end_with?("/") && pattern.count("/") == 1
+          pattern = pattern.delete_suffix("/")
+          # FIXME: not quite right? This should also match directories passed in?
+          get!(pattern).get!("*").set_value(value)
         elsif pattern.include?("/")
           prefix, tail = pattern.split("/", 2)
           get!(prefix).add(tail, value)
@@ -96,7 +115,7 @@ module Globset
 
       patterns.each do |pattern|
         initial_node = @root
-        if !anchored && !pattern.include?("/")
+        if !anchored && !pattern.include?("/") || (pattern.end_with?("/") && pattern.count("/") == 1)
           initial_node = @root.doublestar_transition!
         end
         initial_node.add(pattern)
