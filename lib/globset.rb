@@ -19,13 +19,14 @@ module Globset
 
   class NFA
     class State
-      attr_reader :value
+      attr_reader :value, :final_value
 
       def initialize
         @exact_transitions = {}
         @complex_transitions = {}
         @doublestar_transition = nil
         @value = nil
+        @final_value = nil
       end
 
       # The "doublestar" transition is a special case of the epsilon
@@ -40,8 +41,12 @@ module Globset
         end
       end
 
-      def set_value(value)
-        @value = value
+      def set_value(value, final=false)
+        if final
+          @final_value = value
+        else
+          @value = value
+        end
       end
 
       def get!(segment)
@@ -92,15 +97,17 @@ module Globset
           pattern = pattern[1..]
         end
 
-        if pattern.start_with?("**/")
+        if pattern.empty?
+          # trailing slash
+          get!("*").set_value(value)
+        elsif pattern.start_with?("**/")
           doublestar_transition!.add(pattern.delete_prefix("**/"), value)
-        elsif pattern.end_with?("/") && pattern.count("/") == 1
-          pattern = pattern.delete_suffix("/")
-          # FIXME: not quite right? This should also match directories passed in?
-          get!(pattern).get!("*").set_value(value)
         elsif pattern.include?("/")
           prefix, tail = pattern.split("/", 2)
           get!(prefix).add(tail, value)
+        elsif pattern == "*"
+          # trailing '*'
+          get!(pattern).set_value(value, true)
         else
           # terminal
           get!(pattern).set_value(value)
@@ -125,20 +132,30 @@ module Globset
     def match(pattern)
       initial_states = [@root, @root.doublestar_transition].compact
       #p pattern
+      segments = pattern.split("/", -1)
       states = initial_states.dup
-      results = initial_states.map(&:value).compact
-      pattern.split("/", -1).each do |segment|
-        #p segment: segment
-        #p(segment, states: states.size)
+      results = []
+      segments.each do |segment|
+        # collect values from current states
+        states.each do |state|
+          results << state.value
+        end
+
         next_states = []
         states.each do |from_state|
           from_state.states_matching(segment) do |to_state|
             next_states << to_state
             next_states << to_state.doublestar_transition
-            results << to_state.value
           end
         end
         states = next_states.compact.uniq
+      end
+
+      # Add final states values. These only exist from trailing "/*" segments
+      # which forbid matching in the middle of the pattern.
+      states.each do |state|
+        results << state.value
+        results << state.final_value
       end
 
       results.compact!

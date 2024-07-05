@@ -8,13 +8,11 @@ class TestCodewners < Minitest::Test
   PATTERNS = JSON.parse(File.read("#{__dir__}/fixtures/codeowners_patterns.json"))
 
   PATTERNS.each do |patterns|
-    pp patterns
     name, pattern, paths = patterns.values_at("name", "pattern", "paths")
     test_name = name.gsub(/[^a-z]/i, "_")
 
     define_method("test_#{test_name}") do
       set = Globset::NFA.new([pattern])
-      pp paths
       paths.each do |path, expected|
         match = set.match(path)
         if expected
